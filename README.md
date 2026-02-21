@@ -40,6 +40,20 @@ StateFactoryのインスタンスを生成したら、遷移可能なステー�
 ```cs
 using AsyncStateMachine;
 
+class Foo {}
+class BarState : State
+{
+  protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
+  {
+    while (!ct.IsCancellationRequested)
+    {
+      Console.WriteLine("BarState.OnExecuteAsync");
+      await Task.Delay(TimeSpan.FromSeconds(1));
+    }
+  }
+}
+
+
 // 使用するコンテキストクラスの生成
 var context = new Foo();
 
