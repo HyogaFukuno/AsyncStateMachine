@@ -8,6 +8,8 @@
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Title>AsyncStateMachine</Title>
         <Authors>Hyouga</Authors>
+        <RepositoryUrl>https://github.com/HyogaFukuno/AsyncStateMachine</RepositoryUrl>
+        <PackageId>async-state-machine</PackageId>
     </PropertyGroup>
 
 </Project>

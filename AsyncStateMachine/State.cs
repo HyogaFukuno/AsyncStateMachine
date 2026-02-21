@@ -3,6 +3,7 @@ namespace AsyncStateMachine;
 public abstract class State<TContext> : IDisposable
 {
     protected IReadOnlyStateMachine<TContext>? stateMachine;
+    bool disposed;
 
     protected internal virtual bool CanBeTransition(TContext context) => true;
     protected virtual void OnInitialize(TContext context) { }
@@ -20,6 +21,9 @@ public abstract class State<TContext> : IDisposable
 
     public void Dispose()
     {
+        if (disposed) { return; }
+
+        disposed = true;
         OnDispose();
         GC.SuppressFinalize(this);
     }
