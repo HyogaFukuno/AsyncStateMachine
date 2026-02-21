@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <LangVersion>14</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <TargetFrameworks>net10.0;netstandard2.1</TargetFrameworks>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Title>AsyncStateMachine</Title>
+        <Authors>Hyouga</Authors>
+        <RepositoryUrl>https://github.com/HyogaFukuno/AsyncStateMachine</RepositoryUrl>
+        <PackageId>async-state-machine</PackageId>
+    </PropertyGroup>
+
+</Project>
