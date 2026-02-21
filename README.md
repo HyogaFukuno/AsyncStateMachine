@@ -1,5 +1,5 @@
 # AsyncStateMachine
-Async driven StateMachine for Unity and .NET
+Async/Await-based State Machine for Unity and .NET
 
 [![license](https://img.shields.io/badge/LICENSE-MIT-green.svg)](LICENSE)
 
