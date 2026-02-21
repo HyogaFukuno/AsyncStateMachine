@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AsyncStateMachine.Tests/AsyncStateMachine.Tests.csproj" />
+  <Project Path="AsyncStateMachine/AsyncStateMachine.csproj" />
+</Solution>
