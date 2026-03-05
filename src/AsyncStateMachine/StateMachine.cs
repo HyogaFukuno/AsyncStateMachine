@@ -32,6 +32,24 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
         return (TState)state;
     }
 
+    public State<TContext> At(Type stateType)
+    {
+        if (states.TryGetValue(stateType, out var state))
+        {
+            return state;
+        }
+        
+        if (!factory.factories.TryGetValue(stateType, out var stateFactory))
+        {
+            throw new InvalidOperationException($"Type {stateType.Name} is not registered in the factory. Did you forget to add it to StateFactory?");
+        }
+        
+        state = stateFactory.Invoke();
+        state.Initialize(this, context);
+        states[stateType] = state;
+        return state;
+    }
+
     public void ForceTransition<TState>() where TState : State<TContext>
     {
         if (exitCancellationTokenSource == null)
@@ -40,6 +58,17 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
         }
 
         var to = At<TState>();
+        nextState = to;
+    }
+    
+    public void ForceTransition(Type stateType)
+    {
+        if (exitCancellationTokenSource == null)
+        {
+            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+        }
+
+        var to = At(stateType);
         nextState = to;
     }
 
@@ -51,6 +80,23 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
         }
 
         var to = At<TState>();
+        if (!to.CanBeTransition(context))
+        {
+            return false;
+        }
+
+        nextState = to;
+        return true;
+    }
+    
+    public bool TryTransition(Type stateType)
+    {
+        if (exitCancellationTokenSource == null)
+        {
+            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+        }
+
+        var to = At(stateType);
         if (!to.CanBeTransition(context))
         {
             return false;
