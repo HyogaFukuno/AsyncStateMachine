@@ -10,6 +10,9 @@
         <Authors>Hyouga</Authors>
         <RepositoryUrl>https://github.com/HyogaFukuno/AsyncStateMachine</RepositoryUrl>
         <PackageId>async-state-machine</PackageId>
+        <Version>1.0.1</Version>
+        <Description>A lightweight StateMachine powered async/await for .NET and Unity.</Description>
+        <PackageLicenseUrl>https://github.com/HyogaFukuno/AsyncStateMachine/blob/main/LICENSE</PackageLicenseUrl>
     </PropertyGroup>
 
 </Project>
