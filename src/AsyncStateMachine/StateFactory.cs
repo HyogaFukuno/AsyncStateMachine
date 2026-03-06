@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace AsyncStateMachine;
 
 public sealed class StateFactory<TContext> : IDisposable
