@@ -182,7 +182,7 @@ async ValueTask ExecuteAsync(CancellationToken ct)
 
 async/awaiとtry-catch-finallyを用いることで、子のStateのExecuteAsyncの中身にそのStateの全ての動作が記述されており、処理順も明確になりシンプルになったのがお分かりでしょうか。
 
-実際の処理の中はasync/awaitによって宣言的に記述することができ、処理の流れもハッキリするのが本設計の強みです。
+実際の処理の中はasync/awaitによって手続き的に記述することができ、処理の流れもハッキリするのが本設計の強みです。
 
 また、例外発生時も自身で行うため、この例外が発生した場合は処理する、この例外が発生した場合は無視する、といったことも全て自身で制御できます。
 
