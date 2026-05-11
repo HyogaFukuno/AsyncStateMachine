@@ -40,8 +40,12 @@ StateFactoryのインスタンスを生成したら、遷移可能なステー�
 ```cs
 using AsyncStateMachine;
 
+// Stateクラス内で使用したいコンテキストクラス。
 class Foo {}
-class BarState : State
+
+// 一つの状態として動作するStateクラス。
+// State<T>に使用するコンテキストクラスの型を指定することでメソッドの引数からインスタンスを参照できます。
+class BarState : State<Foo>
 {
 	protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
 	{
