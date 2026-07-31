@@ -1,33 +1,56 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace AsyncStateMachine;
 
-public sealed class StateMachine<TContext> : IStateMachine<TContext>
+/// <summary>
+/// <see cref="IStateMachine{TContext}"/> のインスタンスを生成するエントリポイント。
+/// </summary>
+public static class StateMachine
+{
+    /// <summary>
+    /// ステートマシンを生成する。
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="factory"/> の登録内容はこの時点でコピーされるため、
+    /// 生成後にファクトリを破棄・変更しても、返されたステートマシンには影響しない。
+    /// </remarks>
+    /// <typeparam name="TContext">ステート間で共有するコンテキストの型。</typeparam>
+    /// <param name="context">全ステートへ渡される共有コンテキスト。</param>
+    /// <param name="factory">使用するステートの生成方法を登録したファクトリ。</param>
+    public static IStateMachine<TContext> Create<TContext>(TContext context, StateFactory<TContext> factory)
+        => new StateMachine<TContext>(context, factory);
+}
+
+internal sealed class StateMachine<TContext> : IStateMachine<TContext>
 {
     readonly TContext context;
-    readonly StateFactory<TContext> factory;
+    readonly Dictionary<Type, Func<State<TContext>>> factories;
     readonly Dictionary<Type, State<TContext>> states = [];
     CancellationTokenSource? exitCancellationTokenSource;
+    TaskCompletionSource<bool>? runCompletion;
     State<TContext>? nextState;
+    bool disposed;
 
     internal StateMachine(TContext context, StateFactory<TContext> factory)
     {
         this.context = context;
-        this.factory = factory;
+        // 登録内容をコピーし、生成後は StateFactory の寿命や変更に依存しないようにする。
+        factories = new Dictionary<Type, Func<State<TContext>>>(factory.factories);
     }
 
     public TState At<TState>() where TState : State<TContext>
     {
-        if (states.ContainsKey(typeof(TState)))
+        ThrowIfDisposed();
+
+        if (states.TryGetValue(typeof(TState), out var cached))
         {
-            return (TState)states[typeof(TState)];
+            return (TState)cached;
         }
 
-        if (!factory.factories.TryGetValue(typeof(TState), out var stateFactory))
+        if (!factories.TryGetValue(typeof(TState), out var stateFactory))
         {
             throw new InvalidOperationException($"Type {typeof(TState).Name} is not registered in the factory. Did you forget to add it to StateFactory?");
         }
@@ -40,12 +63,14 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
 
     public State<TContext> At(Type stateType)
     {
+        ThrowIfDisposed();
+
         if (states.TryGetValue(stateType, out var state))
         {
             return state;
         }
         
-        if (!factory.factories.TryGetValue(stateType, out var stateFactory))
+        if (!factories.TryGetValue(stateType, out var stateFactory))
         {
             throw new InvalidOperationException($"Type {stateType.Name} is not registered in the factory. Did you forget to add it to StateFactory?");
         }
@@ -58,9 +83,11 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
 
     public void ForceTransition<TState>() where TState : State<TContext>
     {
+        ThrowIfDisposed();
+
         if (exitCancellationTokenSource == null)
         {
-            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+            throw new InvalidOperationException("The method can only be called when the StateMachine is running.");
         }
 
         var to = At<TState>();
@@ -69,9 +96,11 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
     
     public void ForceTransition(Type stateType)
     {
+        ThrowIfDisposed();
+
         if (exitCancellationTokenSource == null)
         {
-            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+            throw new InvalidOperationException("The method can only be called when the StateMachine is running.");
         }
 
         var to = At(stateType);
@@ -80,9 +109,11 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
 
     public bool TryTransition<TState>() where TState : State<TContext>
     {
+        ThrowIfDisposed();
+
         if (exitCancellationTokenSource == null)
         {
-            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+            throw new InvalidOperationException("The method can only be called when the StateMachine is running.");
         }
 
         var to = At<TState>();
@@ -97,9 +128,11 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
     
     public bool TryTransition(Type stateType)
     {
+        ThrowIfDisposed();
+
         if (exitCancellationTokenSource == null)
         {
-            throw new InvalidOperationException("The method can only be called when the StateMachine running.");
+            throw new InvalidOperationException("The method can only be called when the StateMachine is running.");
         }
 
         var to = At(stateType);
@@ -114,15 +147,32 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
 
     public void Initialize()
     {
-        foreach (var state in factory.factories.Values.Select(static x => x.Invoke()))
+        ThrowIfDisposed();
+
+        if (exitCancellationTokenSource != null)
         {
+            throw new InvalidOperationException("The method can only be called when the StateMachine is not running.");
+        }
+
+        // キーは必ず Register 時の型を使う。ファクトリが派生型を返しても At<TState>() と食い違わないようにするため。
+        foreach (var pair in factories)
+        {
+            if (states.ContainsKey(pair.Key))
+            {
+                // At<TState>() で生成済みのインスタンスを破棄せず再利用する。
+                continue;
+            }
+
+            var state = pair.Value.Invoke();
             state.Initialize(this, context);
-            states[state.GetType()] = state;
+            states[pair.Key] = state;
         }
     }
 
     public void SetInitialState<TState>() where TState : State<TContext>
     {
+        ThrowIfDisposed();
+
         if (exitCancellationTokenSource != null)
         {
             throw new InvalidOperationException("The method can only be called when the StateMachine is not running.");
@@ -133,46 +183,207 @@ public sealed class StateMachine<TContext> : IStateMachine<TContext>
 
     public async ValueTask RunAsync(CancellationToken ct = default)
     {
+        ThrowIfDisposed();
+        
         if (exitCancellationTokenSource != null)
         {
             throw new InvalidOperationException("StateMachine is already running.");
         }
-        
-        exitCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        while (!exitCancellationTokenSource.IsCancellationRequested)
+
+        // Cancel/Dispose によってフィールドが差し替わってもループ条件が壊れないようローカルに退避する。
+        var exitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        exitCancellationTokenSource = exitCts;
+
+        // DisposeAsync が「巻き戻りの完了」を待つための通知口。
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        runCompletion = completion;
+
+        try
         {
-            if (nextState == null)
+            while (!exitCts.IsCancellationRequested)
             {
-                break;
+                if (nextState == null)
+                {
+                    break;
+                }
+
+                var stateCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(exitCts.Token);
+                try
+                {
+                    var current = nextState;
+                    nextState = null;
+
+                    await current.ExecuteAsync(context, stateCancellationTokenSource.Token);
+
+                    // 本体が正常終了した場合のみ、コールバックの例外を呼び出し元へ伝達する
+                    await CancelAsync(stateCancellationTokenSource);
+                }
+                catch
+                {
+                    try
+                    {
+                        await CancelAsync(stateCancellationTokenSource);
+                    }
+                    catch
+                    {
+                        // 本体の例外を呼び出し元へ届けるため、後始末側の例外は握り潰す
+                    }
+
+                    throw;
+                }
+                finally
+                {
+                    stateCancellationTokenSource.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            // 正常終了・キャンセル・例外のいずれでも実行状態を解除し、再度 RunAsync できるようにする
+            if (ReferenceEquals(exitCancellationTokenSource, exitCts))
+            {
+                exitCancellationTokenSource = null;
             }
 
-            var stateCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(exitCancellationTokenSource.Token);
+            exitCts.Dispose();
+            nextState = null;
+
+            if (ReferenceEquals(runCompletion, completion))
+            {
+                runCompletion = null;
+            }
+
             try
             {
-                var current = nextState;
-                nextState = null;
-                
-                await current.ExecuteAsync(context, stateCancellationTokenSource.Token);
+                completion.TrySetResult(true);
             }
             finally
             {
-                stateCancellationTokenSource.Cancel();
+                // 実行中に Dispose された場合、State の破棄はここまで巻き戻ってから行う。
+                if (disposed)
+                {
+                    DisposeStates();
+                }
             }
         }
     }
 
     public void Cancel()
     {
-        exitCancellationTokenSource?.Cancel();
-        exitCancellationTokenSource = null;
+        ThrowIfDisposed();
+
+        // 実行状態の解除と Dispose は RunAsync の finally が行う
+        try
+        {
+            exitCancellationTokenSource?.Cancel();
+        }
+        catch
+        {
+            // State が登録したコールバックの例外は、キャンセル要求元へ伝播させない
+        }
     }
 
+    /// <summary>
+    /// 実行中の場合、State の破棄は <see cref="RunAsync"/> が巻き戻ってから行われるため、
+    /// このメソッドの完了時点では終わっていない。破棄の完了まで待つには <see cref="DisposeAsync"/> を使う。
+    /// </summary>
     public void Dispose()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+
+        var exitCts = exitCancellationTokenSource;
+        if (exitCts == null)
+        {
+            DisposeStates();
+            return;
+        }
+
+        try
+        {
+            exitCts.Cancel();
+        }
+        catch
+        {
+            // State が登録したコールバックの例外は、破棄の呼び出し元へ伝播させない
+        }
+    }
+
+    /// <summary>
+    /// キャンセルを要求し、実行中の State が巻き戻るのを待ってから全 State を破棄する。
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+
+        var exitCts = exitCancellationTokenSource;
+        var completion = runCompletion;
+        if (exitCts == null || completion == null)
+        {
+            DisposeStates();
+            return;
+        }
+
+        try
+        {
+            await CancelAsync(exitCts);
+        }
+        catch
+        {
+            // State が登録したコールバックの例外は、破棄の呼び出し元へ伝播させない。
+            // ここで抜けると下の待機に到達できず、DisposeAsync の「完了を待つ」保証が失われる。
+        }
+
+        // State 側の例外は RunAsync の呼び出し元が受け取る。ここでは巻き戻りの完了だけを待つ。
+        await completion.Task.ConfigureAwait(false);
+    }
+
+    void DisposeStates()
     {
         exitCancellationTokenSource?.Dispose();
         exitCancellationTokenSource = null;
+        runCompletion = null;
+
+        foreach (var state in states.Values)
+        {
+            try
+            {
+                state.Dispose();
+            }
+            catch
+            {
+                // 破棄する最中に出た例外は無視する
+            }
+        }
+
+        states.Clear();
+        nextState = null;
+    }
+    
+    void ThrowIfDisposed()
+    {
+        if (disposed)
+        {
+            throw new ObjectDisposedException(nameof(StateMachine<>));
+        }
     }
 
-    public static IStateMachine<TContext> Create(TContext context, StateFactory<TContext> factory)
-        => new StateMachine<TContext>(context, factory);
+    static ValueTask CancelAsync(CancellationTokenSource cts)
+    {
+#if NET8_0_OR_GREATER
+        return new ValueTask(cts.CancelAsync());
+#else
+        cts.Cancel();
+        return default;
+#endif
+    }
 }

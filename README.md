@@ -34,6 +34,8 @@ NuGetForUnityを使用することでUnityでもインストールすること�
 
 StateFactoryのインスタンスを生成したら、遷移可能なステートとして動作させたいStateクラスを渡すデリゲートを `StateFactory.Register()` メソッドを用いて指定します。
 
+同じ型を二度 `Register()` すると例外になります。テスト用のモックに差し替えるなど、意図的に既存の登録を上書きしたい場合は `StateFactory.Replace()` を使ってください。
+
 必要なStateのデリゲートをStateFactoryに登録し終えたら、`StateMachine.Create(context, factory)` を用いてステートマシンを生成します。
 
 あとは最初に動作するStateクラスを指定したら、`StateMachine.RunAsync()` を呼ぶだけです。
@@ -52,7 +54,7 @@ class BarState : State<Foo>
 		while (!ct.IsCancellationRequested)
 		{
 			Console.WriteLine("BarState.OnExecuteAsync");
-			await Task.Delay(TimeSpan.FromSeconds(1));
+			await Task.Delay(TimeSpan.FromSeconds(1), ct);
 		}
 	}
 }
@@ -62,7 +64,7 @@ class BarState : State<Foo>
 var context = new Foo();
 
 // StateFactoryを生成する
-var factory = new StateFactory();
+var factory = new StateFactory<Foo>();
 
 // 遷移させたいStateクラスを渡すデリゲートを指定する（DIと連携も可能）
 factory.Register(() => new BarState());
@@ -86,18 +88,19 @@ ForceTransitionはその名の通り、強制的にそのステートに遷移�
 TryTransitionは指定したStateが持つCanBeTransitionメソッドを呼び出し、遷移可能であればそのステートに遷移させます。
 
 ```cs
-async ValueTask OnExecuteAsync(CancellationToken ct)
+protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
 {
 	while (!ct.IsCancellationRequested)
 	{
-		// stateMachineにはnullableな変数でアクセスできる
+		// 親のステートマシンには stateMachine (IStateHost<T>) からアクセスできる
+		// nullableなので ?. で呼び出す
 		// 指定したStateのCanBeTransitionがTrueなら遷移する
-		if (stateMachine?.TryTransiton<BazState>() == true)
+		if (stateMachine?.TryTransition<BazState>() == true)
 		{
 			break;
 		}
 		
-		// こちらは遷移先のCanBeTransitonは呼ばない
+		// こちらは遷移先のCanBeTransitionは呼ばない
 		stateMachine?.ForceTransition<BarState>();
 		break;
 	}
@@ -106,6 +109,111 @@ async ValueTask OnExecuteAsync(CancellationToken ct)
 
 ここで注意なのが、ForceTransition、TryTransitionメソッドを呼んだからといって、即そのフレームに遷移するわけではありません。
 次のStateにいつ切り替わるかも全て、子であるStateが制御します。そのため、基本的にはTransitionメソッドを呼び出したあとは上記のようなwhileループを抜けるためにbreakを忘れないでください。
+
+### ステートの生成タイミング
+
+ステートのインスタンスは、そのステートへ初めて遷移した時点で生成され、`OnInitialize` が呼ばれます。特に何もしなくてもこの遅延生成で動作します。
+
+`Initialize()` を呼ぶと、登録済みの全ステートをその場でまとめて生成できます。呼び出しは任意ですが、**生成と `OnInitialize` の実行タイミングを初回遷移時から任意の時点へ前倒しできる**ため、ロード画面などで事前に呼んでおくと、ゲームプレイ中に発生するアロケーションを避けられます。
+
+```cs
+// ロード画面など、多少のコストを払ってよい場所で呼んでおく
+stateMachine.Initialize();
+
+// 以降の遷移ではステートの生成が発生しない
+await stateMachine.RunAsync(ct);
+```
+
+### ライフサイクル（実行・キャンセル・破棄）
+
+`RunAsync` は「遷移先のStateがなくなったとき」「CancellationTokenがキャンセルされたとき」「State内で例外が送出されたとき」のいずれかで終了します。
+
+いずれの場合も終了時点で実行状態は解除されるため、同じインスタンスに対して再度 `SetInitialState` と `RunAsync` を呼び直すことができます。
+
+キャンセル時に `RunAsync` が `OperationCanceledException` を送出するかどうかは、**State側の実装次第**である点に注意してください。本ライブラリはStateが投げた例外に手を加えず、そのまま `RunAsync` の呼び出し元へ伝播させます。したがって、State内で `catch (OperationCanceledException)` して握り潰していれば `RunAsync` は正常終了し、握り潰していなければ例外が飛びます。
+
+`Cancel()` はキャンセルを要求するだけで、実行状態の解除は `RunAsync` 側が行います。そのため、`Cancel()` を呼んだあとに次の実行を組み立てる場合は、必ず `RunAsync` の完了を待ってください。
+
+```cs
+var run = stateMachine.RunAsync(ct);
+
+stateMachine.Cancel();
+await run;                              // ここまで待ってから次を組む
+
+stateMachine.SetInitialState<BarState>();
+await stateMachine.RunAsync(ct);
+```
+
+破棄には `Dispose()` と `DisposeAsync()` の二つがあり、どちらも生成済みの全Stateの `OnDispose()` を呼びます。破棄後のステートマシンは再利用できず、以降の操作は `ObjectDisposedException` になります。
+
+両者の違いは **実行中に呼んだ場合の待ち方** です。
+
+Stateの破棄は、必ず実行中のStateが `ExecuteAsync` から巻き戻ってから行われます。これは、まだ動いているStateに対して `OnDispose()` が先に走り、後始末で解放したはずのリソースを本体が触ってしまう事故を避けるためです。
+
+`DisposeAsync()` はこの巻き戻りの完了までを待ちます。破棄が終わったことを保証したい場合はこちらを使ってください。
+
+```cs
+await using var stateMachine = StateMachine.Create(context, factory);
+```
+
+いっぽう `Dispose()` はキャンセルを要求するだけで待たずに戻ります。実際のStateの破棄は `RunAsync` が巻き戻った時点で行われるため、`Dispose()` から戻った直後にはまだ `OnDispose()` が呼ばれていません。Unityの `MonoBehaviour.OnDestroy()` のように非同期に待てない場所ではこちらを使いますが、破棄の完了を待ちたい場合は `DisposeAsync()` を選んでください。
+
+なお、Stateが `CancellationToken` を無視して動き続ける実装になっていると、巻き戻りが起きないため破棄も完了しません。ステート内では必ずトークンを尊重してください。
+
+### スレッド安全性
+
+本ライブラリはスレッドセーフではありません。単一のステートマシンに対する操作（`RunAsync` / `Cancel` / 遷移メソッド / `Dispose`）は、すべて同一のスレッドから行ってください。Unityであればメインスレッドから扱うことを想定しています。
+
+なお `StateFactory` の登録内容は `StateMachine.Create()` の時点でコピーされます。そのためステートマシンの生成後は、ファクトリを破棄しても、`Replace()` で登録を差し替えても、生成済みのステートマシンには影響しません。
+
+## Unity
+
+UnityではNuGetForUnityを用いて`async-state-machine`をインストールしてください。動作には .NET Standard 2.1 が必要です。
+
+### UniTaskとの併用
+
+本ライブラリのAPIは `ValueTask` に統一されていますが、UniTaskと問題なく併用できます。
+
+まず、`OnExecuteAsync` の中では `await UniTask.Yield()` や `await UniTask.Delay()` をそのまま書けます。`async ValueTask` メソッドであっても、UniTaskのawaiterはそのまま機能します。
+
+このとき発生するステートマシンのボックス化は **最初のawaitの1回だけ** で、ループの反復ごとには発生しません。またこの境界はステート遷移ごとにしか通らないため、毎フレームのコストにはなりません。
+
+```cs
+class BarState : State<Foo>
+{
+	protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
+	{
+		while (!ct.IsCancellationRequested)
+		{
+			await UniTask.Yield();
+		}
+	}
+}
+```
+
+そのうえでステート本体までUniTaskのアロケーションフリーな実行基盤に載せたい場合は、`UniTask.AsValueTask()` を用いて境界だけを変換してください。Unity 2022.3以降であればこの変換にコストはかかりません（UniTask v2.5.1以降）。
+
+```cs
+class BarState : State<Foo>
+{
+	protected override ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
+		=> ExecuteCoreAsync(context, ct).AsValueTask();
+
+	async UniTask ExecuteCoreAsync(Foo context, CancellationToken ct)
+	{
+		while (!ct.IsCancellationRequested)
+		{
+			await UniTask.Yield();
+		}
+	}
+}
+```
+
+`RunAsync` の戻り値をUniTaskとして扱いたい場合は `ValueTask.AsUniTask()` が利用できます。
+
+```cs
+stateMachine.RunAsync(ct).AsUniTask().Forget();
+```
 
 ## なぜ非同期なのか？
 
@@ -155,7 +263,7 @@ void Update()
 
 本設計では、親はRunAsyncの中で、基本的にはただ子のExecuteAsyncを呼ぶだけになっており、
 
-子のExecuteAsyncがいつ終わるのかは、小自身が制御します。Enter,Update、Exitのように処理が分かれてもいません。
+子のExecuteAsyncがいつ終わるのかは、子自身が制御します。Enter,Update、Exitのように処理が分かれてもいません。
 
 子の処理をどう呼ぶかは子自身が制御します。そうすることで先ほどの問題を全て解決することが可能です。
 
@@ -184,7 +292,7 @@ async ValueTask ExecuteAsync(CancellationToken ct)
 
 ```
 
-async/awaiとtry-catch-finallyを用いることで、子のStateのExecuteAsyncの中身にそのStateの全ての動作が記述されており、処理順も明確になりシンプルになったのがお分かりでしょうか。
+async/awaitとtry-catch-finallyを用いることで、子のStateのExecuteAsyncの中身にそのStateの全ての動作が記述されており、処理順も明確になりシンプルになったのがお分かりでしょうか。
 
 実際の処理の中はasync/awaitによって手続き的に記述することができ、処理の流れもハッキリするのが本設計の強みです。
 

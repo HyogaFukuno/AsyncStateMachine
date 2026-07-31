@@ -1,0 +1,116 @@
+name: Release
+
+# main へマージされたら、csproj の <Version> を見てリリースするかどうかを決める。
+# 同じバージョンのタグが既にあれば何もしないため、ドキュメント修正などの通常のマージでは動かない。
+# リリースしたいときは csproj の <Version> を上げて main へマージする。
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # nuget.org の Trusted Publishing 用に OIDC トークンの発行を許可する。
+  # これがないとトークン要求が失敗し、NuGet へのログインができない。
+  id-token: write
+
+jobs:
+  release:
+    name: リリースと公開
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 既存タグを参照してリリース済みか判定するため、履歴をすべて取得する。
+          fetch-depth: 0
+
+      - name: .NET SDK をセットアップする
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: パッケージのバージョンを取得する
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(dotnet msbuild src/AsyncStateMachine/AsyncStateMachine.csproj -getProperty:Version | tr -d '[:space:]')"
+          if [ -z "$version" ]; then
+            echo "csproj から <Version> を取得できませんでした。" >&2
+            exit 1
+          fi
+          echo "バージョン: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: 公開済みのバージョンかどうかを判定する
+        id: gate
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "タグ $version は既に存在します。リリースをスキップします。"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "タグ $version は未作成です。リリースを実行します。"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: テストを実行する
+        if: steps.gate.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          dotnet restore AsyncStateMachine.slnx
+          dotnet build AsyncStateMachine.slnx -c Release --no-restore
+          dotnet test src/AsyncStateMachine.UnitTests -c Release --no-build
+
+      - name: パッケージを作成する
+        if: steps.gate.outputs.should_release == 'true'
+        run: dotnet pack src/AsyncStateMachine/AsyncStateMachine.csproj -c Release --no-build -o artifacts
+
+      - name: CHANGELOG から該当バージョンの節を抜き出す
+        if: steps.gate.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md に [$version] の節が見つかりませんでした。" >&2
+            exit 1
+          fi
+
+      # Trusted Publishing で一時 API キーを受け取る。有効期限は1時間なので、
+      # 公開の直前に取得する（このステップを前へ動かさないこと）。
+      - name: NuGet にログインする
+        id: login
+        if: steps.gate.outputs.should_release == 'true'
+        uses: NuGet/login@v1
+        with:
+          # nuget.org のユーザー名（プロフィール名）。メールアドレスではない。
+          user: Hyouga
+
+      # NuGet を先に公開する。--skip-duplicate があるため再実行しても安全で、
+      # 後段が失敗した場合はワークフローを再実行すれば続きから復旧できる。
+      - name: NuGet へ公開する
+        if: steps.gate.outputs.should_release == 'true'
+        run: |
+          dotnet nuget push "artifacts/*.nupkg" \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: タグを作成して GitHub Release を公開する
+        if: steps.gate.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          gh release create "$version" \
+            --title "Ver $version" \
+            --notes-file release-notes.md \
+            --target "$GITHUB_SHA" \
+            artifacts/*.nupkg
