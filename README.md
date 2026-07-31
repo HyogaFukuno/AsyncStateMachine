@@ -235,7 +235,7 @@ stateMachine.RunAsync(ct).AsUniTask().Forget();
 
 Update内で例外が投げられExit内の処理を読んでほしい場合、Stateクラスがその挙動を制御することはできず、
 
-親であるStateMachine側でUpdate中の例外をcatchしたらfinallyスコープでExitを呼ぶように設計されていないといけません。
+親であるStateMachine側でUpdate中の例外をcatchしたらExitを呼ぶように設計されていないといけません。
 
 ```cs
 
@@ -245,10 +245,7 @@ void Update()
 	{
 		currentScene.Update();
 	}
-	catch ()
-	{
-	}
-	finally
+	catch
 	{
 		// 親であるStateMachine側によって子のStateの終了処理を呼ぶ場所が固定されてしまう
 		currentScene.Exit();
