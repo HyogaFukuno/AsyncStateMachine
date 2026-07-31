@@ -20,13 +20,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # 既存タグを参照してリリース済みか判定するため、履歴をすべて取得する。
           fetch-depth: 0
 
       - name: .NET SDK をセットアップする
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
