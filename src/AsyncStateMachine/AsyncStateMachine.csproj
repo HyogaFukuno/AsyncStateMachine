@@ -9,9 +9,26 @@
         <Authors>Hyouga</Authors>
         <RepositoryUrl>https://github.com/HyogaFukuno/AsyncStateMachine</RepositoryUrl>
         <PackageId>async-state-machine</PackageId>
-        <Version>1.0.2</Version>
+        <Version>2.0.0</Version>
         <Description>A lightweight StateMachine powered async/await for .NET and Unity.</Description>
-        <PackageLicenseUrl>https://github.com/HyogaFukuno/AsyncStateMachine/blob/main/LICENSE</PackageLicenseUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageProjectUrl>https://github.com/HyogaFukuno/AsyncStateMachine</PackageProjectUrl>
+        <PackageTags>statemachine;fsm;state-machine;async;await;unity;unitask;valuetask;gamedev</PackageTags>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+        <!-- デバッグ時に NuGet からソースを辿れるようにする（SourceLink は .NET SDK に同梱） -->
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <RepositoryType>git</RepositoryType>
+        <!-- CI 上のビルドだけ再現可能なパス情報にする -->
+        <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="../../README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
 
 </Project>

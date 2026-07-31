@@ -7,7 +7,7 @@ var factory = new StateFactory<DummyContext>();
 factory.Register(() => new DummyState());
 factory.Register(() => new CloseState());
 
-var stateMachine = StateMachine<DummyContext>.Create(new DummyContext(), factory);
+var stateMachine = StateMachine.Create(new DummyContext(), factory);
 stateMachine.SetInitialState<DummyState>();
 
 await stateMachine.RunAsync();

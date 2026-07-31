@@ -1,0 +1,31 @@
+name: CI
+
+# main への push と main 宛ての PR でビルドとテストを実行する。
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ビルドとテスト
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: .NET SDK をセットアップする
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 依存関係を復元する
+        run: dotnet restore AsyncStateMachine.slnx
+
+      - name: ビルドする
+        run: dotnet build AsyncStateMachine.slnx -c Release --no-restore
+
+      - name: テストを実行する
+        run: dotnet test src/AsyncStateMachine.UnitTests -c Release --no-build
