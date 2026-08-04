@@ -3,6 +3,26 @@
 本ファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に従い、
 バージョニングは [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [2.1.0] - 2026-08-04
+
+### 追加
+
+- **`IStateHost<TContext>` に `IsTransitionRequested` プロパティを追加しました。** 次に実行するステートが確定しているかどうかを返します。
+
+  これまで、実行中のStateが遷移の発生を知る手段は自身が呼んだ `TryTransition` の戻り値だけでした。そのため、メインのステートマシンから別に動かしているサブのステートマシンへ `subStateMachine.TryTransition<FooState>()` を呼ぶような、**遷移の要求元とループの制御元が別になるケース**では、サブ側で走っているStateがループを抜ける契機を得られませんでした。本プロパティは要求元が自分か外部かを問わず `true` になるため、`while (!ct.IsCancellationRequested && stateMachine?.IsTransitionRequested != true)` と書くだけでどちらのパターンにも対応できます。
+
+  `ForceTransition` と `TryTransition`（成功時）のどちらでも `true` になり、遷移先の実行が始まった時点で `false` へ戻ります。`CanBeTransition` に拒否された場合は `false` のままです。`SetInitialState` で指定した初期ステートも遷移先として扱うため、実行開始前は `true` になります。破棄済みの場合は、後始末中のループ条件から読まれても壊れないよう、例外を送出せず `false` を返します。
+
+  なお、Stateから参照できるのは `IStateHost<TContext>` であるため、追加先は `IStateMachine<TContext>` ではなく `IStateHost<TContext>` です。`IStateMachine<TContext>` はこれを継承しているため、外部からも同じプロパティを参照できます。**`IStateHost<TContext>` を独自に実装している場合はメンバーの追加が必要です。** このインターフェースはStateから遷移操作を呼ぶための消費側インターフェースであり、独自実装は想定していないため、マイナーバージョンでの追加としています。
+
+### ドキュメント
+
+- READMEの「Stateの切り替えについて」に「外部からの遷移要求を検知する」を追加しました。
+
+### テスト
+
+- `IsTransitionRequested` の回帰テストを9ケース追加しました（合計58ケース）。
+
 ## [2.0.0] - 2026-07-31
 
 `1.0.2` に含まれていた複数の不具合修正と、それに伴うAPIの整理を行ったメジャーリリースです。

@@ -117,6 +117,56 @@ public sealed class TryTransitionState : State<TestContext>
 }
 
 /// <summary>
+/// 外部から遷移が要求されるまでループし続けるステート。
+/// <see cref="IStateHost{TContext}.IsTransitionRequested"/> だけでループを抜けられることの検証に使う。
+/// </summary>
+public sealed class WaitsForTransitionRequestState : State<TestContext>
+{
+    readonly TaskCompletionSource<bool> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Started => started.Task;
+    public int LoopCount { get; private set; }
+
+    protected override async ValueTask OnExecuteAsync(TestContext context, CancellationToken ct)
+    {
+        context.Log.Add("WaitsForTransitionRequestState.Execute");
+        started.TrySetResult(true);
+
+        while (!ct.IsCancellationRequested && stateMachine?.IsTransitionRequested != true)
+        {
+            LoopCount++;
+            await Task.Delay(10, CancellationToken.None);
+        }
+
+        context.Log.Add("WaitsForTransitionRequestState.Exit");
+    }
+}
+
+/// <summary>実行開始時点の <see cref="IStateHost{TContext}.IsTransitionRequested"/> を記録するステート。</summary>
+public sealed class RecordsTransitionRequestState : State<TestContext>
+{
+    public bool? OnEntry { get; private set; }
+    public bool? AfterForceTransition { get; private set; }
+
+    /// <summary>非 <c>null</c> の場合、記録後にこの型へ遷移する。</summary>
+    public Type? Target { get; set; }
+
+    protected override ValueTask OnExecuteAsync(TestContext context, CancellationToken ct)
+    {
+        context.Log.Add("RecordsTransitionRequestState.Execute");
+        OnEntry = stateMachine?.IsTransitionRequested;
+
+        if (Target != null)
+        {
+            stateMachine?.ForceTransition(Target);
+            AfterForceTransition = stateMachine?.IsTransitionRequested;
+        }
+
+        return default;
+    }
+}
+
+/// <summary>
 /// キャンセルトークンへ例外を投げるコールバックを登録するステート。
 /// 利用者側の後始末が失敗しても、ステートマシンの破棄・キャンセル経路が壊れないことの検証に使う。
 /// </summary>

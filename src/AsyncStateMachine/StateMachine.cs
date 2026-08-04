@@ -41,6 +41,10 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
         factories = new Dictionary<Type, Func<State<TContext>>>(factory.factories);
     }
 
+    // 遷移先の有無をそのまま公開する。RunAsync のループ先頭で nextState が消費されるため、
+    // 遷移が始まった時点で false へ戻る。後始末中のループ条件から読まれるため破棄済みでも例外は投げない。
+    public bool IsTransitionRequested => nextState != null;
+
     public TState At<TState>() where TState : State<TContext>
     {
         ThrowIfDisposed();

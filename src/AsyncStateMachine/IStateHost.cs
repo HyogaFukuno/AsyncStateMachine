@@ -13,6 +13,27 @@ namespace AsyncStateMachine;
 public interface IStateHost<TContext>
 {
     /// <summary>
+    /// 次に実行するステートが確定しているかどうかを返す。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ForceTransition{TState}"/> または <see cref="TryTransition{TState}"/> が成功すると <c>true</c> になり、
+    /// 現在のステートが <see cref="State{TContext}.OnExecuteAsync"/> から戻って遷移先が実行され始めた時点で <c>false</c> に戻る。
+    /// </para>
+    /// <para>
+    /// 遷移を要求したのが自分自身か外部かを問わないため、実行中のステートは
+    /// このプロパティを見るだけで自身のループを抜けられる。
+    /// メインのステートマシンからサブのステートマシンへ遷移を要求する場合など、
+    /// 遷移の要求元とループの制御元が別になるケースで使う。
+    /// </para>
+    /// <para>
+    /// <see cref="IStateMachine{TContext}.SetInitialState{TState}"/> で指定した初期ステートも遷移先として扱われるため、
+    /// 実行開始前は <c>true</c> になる。破棄済みの場合は例外を送出せず <c>false</c> を返す。
+    /// </para>
+    /// </remarks>
+    bool IsTransitionRequested { get; }
+
+    /// <summary>
     /// 遷移先の <see cref="State{TContext}.CanBeTransition"/> を問わず、次のステートを指定する。
     /// </summary>
     /// <typeparam name="TState">遷移先のステートの型。</typeparam>
