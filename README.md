@@ -110,6 +110,33 @@ protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken
 ここで注意なのが、ForceTransition、TryTransitionメソッドを呼んだからといって、即そのフレームに遷移するわけではありません。
 次のStateにいつ切り替わるかも全て、子であるStateが制御します。そのため、基本的にはTransitionメソッドを呼び出したあとは上記のようなwhileループを抜けるためにbreakを忘れないでください。
 
+### 外部からの遷移要求を検知する
+
+遷移を要求するのは、実行中のState自身とは限りません。メインのステートマシンから、別に動かしているサブのステートマシンへ `subStateMachine.TryTransition<FooState>()` を呼ぶようなケースでは、**要求元とループの制御元が別**になります。
+
+このとき、サブ側で走っているStateは `TryTransition` の戻り値を受け取れないため、そのままではループを抜ける契機がありません。`IsTransitionRequested` は「次に実行するStateが確定しているか」を返すので、要求元が自分か外部かを問わず、これを見るだけでループを抜けられます。
+
+```cs
+// サブのステートマシンで動作するState
+protected override async ValueTask OnExecuteAsync(Foo context, CancellationToken ct)
+{
+	// 自分で遷移を要求していなくても、外部から要求された時点で true になる
+	while (!ct.IsCancellationRequested && stateMachine?.IsTransitionRequested != true)
+	{
+		await Task.Delay(TimeSpan.FromSeconds(1), ct);
+	}
+}
+```
+
+```cs
+// メインのステートマシン側、あるいは任意の外部から
+subStateMachine.TryTransition<FooState>();
+```
+
+`ForceTransition` と `TryTransition`（成功時）のどちらでも `true` になり、遷移先の実行が始まった時点で `false` に戻ります。`TryTransition` が `CanBeTransition` に拒否された場合は `false` のままです。
+
+なお `SetInitialState` で指定した初期Stateも遷移先として扱われるため、`RunAsync` を呼ぶ前は `true` になります。破棄済みのステートマシンでは例外を送出せず `false` を返すため、後始末中のループ条件から読んでも安全です。
+
 ### ステートの生成タイミング
 
 ステートのインスタンスは、そのステートへ初めて遷移した時点で生成され、`OnInitialize` が呼ばれます。特に何もしなくてもこの遅延生成で動作します。
