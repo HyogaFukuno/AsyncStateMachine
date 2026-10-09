@@ -14,6 +14,26 @@ namespace AsyncStateMachine;
 public interface IStateMachine<TContext> : IStateHost<TContext>, IDisposable, IAsyncDisposable
 {
     /// <summary>
+    /// 現在実行中のステートの型を返す。実行中でない場合は <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 返すのは <see cref="StateFactory{TContext}"/> に登録した型であり、ファクトリが派生型のインスタンスを返した場合でも
+    /// インスタンスの実際の型ではなく登録時の型になる。そのため、返された型はそのまま
+    /// <see cref="At(Type)"/> や <see cref="IStateHost{TContext}.TryTransition(Type)"/> に渡せる。
+    /// </para>
+    /// <para>
+    /// 遷移先のステートの実行が始まった時点で切り替わる。遷移を要求しただけでは変わらないため、
+    /// 要求済みの遷移先の有無は <see cref="IStateHost{TContext}.IsTransitionRequested"/> で確認すること。
+    /// </para>
+    /// <para>
+    /// <see cref="SetInitialState{TState}"/> を呼んだだけでは <c>null</c> のままで、<see cref="RunAsync"/> の終了時にも <c>null</c> へ戻る。
+    /// 破棄済みでも例外は送出しない。実行中に破棄した場合は、実行中のステートが巻き戻った時点で <c>null</c> になる。
+    /// </para>
+    /// </remarks>
+    Type? CurrentStateType { get; }
+
+    /// <summary>
     /// 登録済みの全ステートを事前に生成する。呼び出しは任意で、未生成のステートは遷移時に生成される。
     /// </summary>
     /// <remarks>

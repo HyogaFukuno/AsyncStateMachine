@@ -3,6 +3,24 @@
 本ファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に従い、
 バージョニングは [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [Unreleased]
+
+### 追加
+
+- **`IStateMachine<TContext>` に `CurrentStateType` プロパティを追加しました。** 現在実行中のStateの型を返し、実行中でない場合は `null` を返します。
+
+  返す型はインスタンスの実際の型ではなく `StateFactory` に登録した型です。ファクトリが派生型（テスト用のモックなど）を返しても登録時の型になるため、そのまま `At(Type)` や `TryTransition(Type)` に渡せます。値は遷移先の実行が始まった時点で切り替わり、遷移を要求しただけでは変わりません。`RunAsync` の終了時（正常終了・キャンセル・例外のいずれでも）に `null` へ戻り、破棄済みでも例外は送出しません。
+
+  Stateから見た現在のStateは自分自身であり用途がないため、追加先は `IStateHost<TContext>` ではなく `IStateMachine<TContext>` です。**`IStateMachine<TContext>` を独自に実装している場合はメンバーの追加が必要です。**
+
+### ドキュメント
+
+- READMEの「Stateの切り替えについて」に「現在実行中のStateを確認する」を追加しました。
+
+### テスト
+
+- `CurrentStateType` の回帰テストを8ケース追加しました（合計66ケース）。
+
 ## [2.1.0] - 2026-08-04
 
 ### 追加

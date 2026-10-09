@@ -137,6 +137,21 @@ subStateMachine.TryTransition<FooState>();
 
 なお `SetInitialState` で指定した初期Stateも遷移先として扱われるため、`RunAsync` を呼ぶ前は `true` になります。破棄済みのステートマシンでは例外を送出せず `false` を返すため、後始末中のループ条件から読んでも安全です。
 
+### 現在実行中のStateを確認する
+
+`IStateMachine<TContext>.CurrentStateType` で、現在実行中のStateの型を取得できます。実行中でない場合は `null` です。
+
+```cs
+if (subStateMachine.CurrentStateType == typeof(FooState))
+{
+	// サブのステートマシンが FooState を実行中
+}
+```
+
+返す型は `StateFactory` に登録した型です。`Register<FooState>(() => new MockFooState())` のようにファクトリが派生型を返していても `typeof(FooState)` になるため、そのまま `TryTransition(Type)` などに渡せます。
+
+値が切り替わるのは遷移先の実行が始まった時点で、`TryTransition` / `ForceTransition` を呼んだだけでは変わりません。`SetInitialState` を呼んだだけでは `null` のままで、`RunAsync` の終了時にも `null` に戻ります。破棄済みでも例外は送出しません。
+
 ### ステートの生成タイミング
 
 ステートのインスタンスは、そのステートへ初めて遷移した時点で生成され、`OnInitialize` が呼ばれます。特に何もしなくてもこの遅延生成で動作します。
