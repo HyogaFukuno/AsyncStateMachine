@@ -3,7 +3,7 @@
 本ファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の形式に従い、
 バージョニングは [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
-## [Unreleased]
+## [2.2.0] - 2026-10-15
 
 ### 追加
 
