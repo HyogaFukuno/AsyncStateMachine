@@ -238,3 +238,21 @@ public sealed class IgnoresCancellationState : State<TestContext>
         return default;
     }
 }
+
+/// <summary>実行開始時点の <see cref="IStateMachine{TContext}.CurrentStateType"/> を記録するステート。</summary>
+public class RecordsCurrentStateTypeState : State<TestContext>
+{
+    /// <summary>ステートから参照できるのは <see cref="IStateHost{TContext}"/> のため、検証用に外部から渡す。</summary>
+    public IStateMachine<TestContext>? Machine { get; set; }
+
+    public Type? OnEntry { get; private set; }
+
+    protected override ValueTask OnExecuteAsync(TestContext context, CancellationToken ct)
+    {
+        OnEntry = Machine?.CurrentStateType;
+        return default;
+    }
+}
+
+/// <summary><see cref="RecordsCurrentStateTypeState"/> の派生。ファクトリが派生型を返すケースの検証に使う。</summary>
+public sealed class DerivedRecordsCurrentStateTypeState : RecordsCurrentStateTypeState;

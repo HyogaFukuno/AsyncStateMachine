@@ -32,6 +32,9 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
     CancellationTokenSource? exitCancellationTokenSource;
     TaskCompletionSource<bool>? runCompletion;
     State<TContext>? nextState;
+    // ファクトリが派生型を返しても登録時の型を公開できるよう、インスタンスとは別に型を保持する。
+    Type? nextStateType;
+    Type? currentStateType;
     bool disposed;
 
     internal StateMachine(TContext context, StateFactory<TContext> factory)
@@ -44,6 +47,9 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
     // 遷移先の有無をそのまま公開する。RunAsync のループ先頭で nextState が消費されるため、
     // 遷移が始まった時点で false へ戻る。後始末中のループ条件から読まれるため破棄済みでも例外は投げない。
     public bool IsTransitionRequested => nextState != null;
+
+    // 後始末中のステートから読まれても壊れないよう、破棄済みでも例外は投げない。
+    public Type? CurrentStateType => currentStateType;
 
     public TState At<TState>() where TState : State<TContext>
     {
@@ -96,6 +102,7 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
 
         var to = At<TState>();
         nextState = to;
+        nextStateType = typeof(TState);
     }
     
     public void ForceTransition(Type stateType)
@@ -109,6 +116,7 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
 
         var to = At(stateType);
         nextState = to;
+        nextStateType = stateType;
     }
 
     public bool TryTransition<TState>() where TState : State<TContext>
@@ -127,6 +135,7 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
         }
 
         nextState = to;
+        nextStateType = typeof(TState);
         return true;
     }
     
@@ -146,6 +155,7 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
         }
 
         nextState = to;
+        nextStateType = stateType;
         return true;
     }
 
@@ -183,6 +193,7 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
         }
 
         nextState = At<TState>();
+        nextStateType = typeof(TState);
     }
 
     public async ValueTask RunAsync(CancellationToken ct = default)
@@ -215,7 +226,9 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
                 try
                 {
                     var current = nextState;
+                    currentStateType = nextStateType;
                     nextState = null;
+                    nextStateType = null;
 
                     await current.ExecuteAsync(context, stateCancellationTokenSource.Token);
 
@@ -251,6 +264,8 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
 
             exitCts.Dispose();
             nextState = null;
+            nextStateType = null;
+            currentStateType = null;
 
             if (ReferenceEquals(runCompletion, completion))
             {
@@ -371,6 +386,8 @@ internal sealed class StateMachine<TContext> : IStateMachine<TContext>
 
         states.Clear();
         nextState = null;
+        nextStateType = null;
+        currentStateType = null;
     }
     
     void ThrowIfDisposed()
